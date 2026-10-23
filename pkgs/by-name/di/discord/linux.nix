@@ -206,31 +206,31 @@ stdenv.mkDerivation (finalAttrs: {
   installPhase = ''
     runHook preInstall
 
-    mkdir -p $out/{bin,opt/${binaryName},share/icons/hicolor/256x256/apps}
+    mkdir -p $out/{bin,opt/${binaryName}/app-${version},share/icons/hicolor/256x256/apps}
 
     # The host distro is a brotli-compressed tar with all files under a `files/`
     # prefix (the channel binary, libffmpeg.so, resources/, etc). Module distros
     # follow the same format with module contents under `files/`
-    brotli -d < $src | tar xf - --strip-components=1 -C $out/opt/${binaryName}
-    chmod +x $out/opt/${binaryName}/${binaryName}
+    brotli -d < $src | tar xf - --strip-components=1 -C $out/opt/${binaryName}/app-${version}
+    chmod +x $out/opt/${binaryName}/app-${version}/${binaryName}
 
     # The module directory layout must match what Discord's node runtime
     # expects: modules/<name>/ (the moduleUpdater extracts zips into
     # path.join(moduleInstallPath, moduleName) see processUnzipQueue)
     ${lib.concatStringsSep "\n" (
       lib.mapAttrsToList (name: src: ''
-        mkdir -p $out/opt/${binaryName}/modules/${name}
-        brotli -d < ${src} | tar xf - --strip-components=1 -C $out/opt/${binaryName}/modules/${name}
+        mkdir -p $out/opt/${binaryName}/app-${version}/modules/${name}
+        brotli -d < ${src} | tar xf - --strip-components=1 -C $out/opt/${binaryName}/app-${version}/modules/${name}
       '') moduleSrcs
     )}
     echo ${lib.escapeShellArg moduleManifest} > $out/opt/${binaryName}/modules/installed.json
 
     # The updater creates pending even when module updates are disabled
-    mkdir -p $out/opt/${binaryName}/modules/{pending,discord_krisp/KMS/logs}
+    mkdir -p $out/opt/${binaryName}/app-${version}/modules/{pending,discord_krisp/KMS/logs}
 
     # Chromium 148 multiplies Plasma's GTK DPI scale by the native Wayland surface
     # scale, which makes the UI too large. See #551645
-    wrapProgramShell $out/opt/${binaryName}/${binaryName} \
+    wrapProgramShell $out/opt/${binaryName}/app-${version}/${binaryName} \
         "''${gappsWrapperArgs[@]}" \
         --run 'case ":''${XDG_CURRENT_DESKTOP:-}:" in *:KDE:*) discordKdeWayland=1 ;; *) unset discordKdeWayland ;; esac' \
         --add-flags "\''${NIXOS_OZONE_WL:+\''${WAYLAND_DISPLAY:+--ozone-platform=wayland --enable-features=WaylandWindowDecorations --enable-wayland-ime=true}}" \
@@ -241,19 +241,19 @@ stdenv.mkDerivation (finalAttrs: {
         ''} \
         ${lib.strings.optionalString enableAutoscroll "--add-flags \"--enable-blink-features=MiddleClickAutoscroll\""} \
         --prefix XDG_DATA_DIRS : "${gtk3}/share/gsettings-schemas/${gtk3.name}/" \
-        --prefix LD_LIBRARY_PATH : $out/opt/${binaryName}:${addDriverRunpath.driverLink}/lib \
+        --prefix LD_LIBRARY_PATH : $out/opt/${binaryName}/app-${version}:${addDriverRunpath.driverLink}/lib \
         ${lib.strings.optionalString (!useFHSEnv) "--prefix LD_LIBRARY_PATH : ${finalAttrs.libPath}"} \
         --suffix VK_ADD_DRIVER_FILES : "${addDriverRunpath.driverLink}/share/vulkan/icd.d" \
         ${lib.strings.optionalString disableUpdates "--run ${lib.getExe finalAttrs.disableBreakingUpdates}"} \
-        --run "${finalAttrs.stageModules} $out/opt/${binaryName}/modules" \
+        --run "${finalAttrs.stageModules} $out/opt/${binaryName}/app-${version}/modules" \
         --run '[ -t 1 ] || exec > /dev/null 2>&1' \
         --add-flags ${lib.escapeShellArg commandLineArgs}
 
-    ln -s $out/opt/${binaryName}/${binaryName} $out/bin/
+    ln -s $out/opt/${binaryName}/app-${version}/${binaryName} $out/bin/
     # Without || true the install would fail on case-insensitive filesystems
-    ln -s $out/opt/${binaryName}/${binaryName} $out/bin/${lib.strings.toLower binaryName} || true
+    ln -s $out/opt/${binaryName}/app-${version}/${binaryName} $out/bin/${lib.strings.toLower binaryName} || true
 
-    ln -s $out/opt/${binaryName}/discord.png $out/share/icons/hicolor/256x256/apps/${pname}.png
+    ln -s $out/opt/${binaryName}/app-${version}/discord.png $out/share/icons/hicolor/256x256/apps/${pname}.png
 
     ln -s "$desktopItem/share/applications" $out/share/
 
@@ -262,25 +262,25 @@ stdenv.mkDerivation (finalAttrs: {
 
   postInstall =
     lib.strings.optionalString withOpenASAR ''
-      cp -f ${openasar} $out/opt/${binaryName}/resources/app.asar
+      cp -f ${openasar} $out/opt/${binaryName}/app-${version}/resources/app.asar
     ''
     + lib.strings.optionalString withVencord ''
-      mv $out/opt/${binaryName}/resources/app.asar $out/opt/${binaryName}/resources/_app.asar
-      mkdir $out/opt/${binaryName}/resources/app.asar
-      echo '{"name":"discord","main":"index.js"}' > $out/opt/${binaryName}/resources/app.asar/package.json
-      echo 'require("${vencord}/patcher.js")' > $out/opt/${binaryName}/resources/app.asar/index.js
+      mv $out/opt/${binaryName}/app-${version}/resources/app.asar $out/opt/${binaryName}/app-${version}/resources/_app.asar
+      mkdir $out/opt/${binaryName}/app-${version}/resources/app.asar
+      echo '{"name":"discord","main":"index.js"}' > $out/opt/${binaryName}/app-${version}/resources/app.asar/package.json
+      echo 'require("${vencord}/patcher.js")' > $out/opt/${binaryName}/app-${version}/resources/app.asar/index.js
     ''
     + lib.strings.optionalString withEquicord ''
-      mv $out/opt/${binaryName}/resources/app.asar $out/opt/${binaryName}/resources/_app.asar
-      mkdir $out/opt/${binaryName}/resources/app.asar
-      echo '{"name":"discord","main":"index.js"}' > $out/opt/${binaryName}/resources/app.asar/package.json
-      echo 'require("${equicord}/desktop/patcher.js")' > $out/opt/${binaryName}/resources/app.asar/index.js
+      mv $out/opt/${binaryName}/app-${version}/resources/app.asar $out/opt/${binaryName}/app-${version}/resources/_app.asar
+      mkdir $out/opt/${binaryName}/app-${version}/resources/app.asar
+      echo '{"name":"discord","main":"index.js"}' > $out/opt/${binaryName}/app-${version}/resources/app.asar/package.json
+      echo 'require("${equicord}/desktop/patcher.js")' > $out/opt/${binaryName}/app-${version}/resources/app.asar/index.js
     ''
     + lib.strings.optionalString withMoonlight ''
-      mv $out/opt/${binaryName}/resources/app.asar $out/opt/${binaryName}/resources/_app.asar
-      mkdir $out/opt/${binaryName}/resources/app
-      echo '{"name":"discord","main":"injector.js","private": true}' > $out/opt/${binaryName}/resources/app/package.json
-      echo 'require("${moonlight}/injector.js").inject(require("path").join(__dirname, "../_app.asar"));' > $out/opt/${binaryName}/resources/app/injector.js
+      mv $out/opt/${binaryName}/app-${version}/resources/app.asar $out/opt/${binaryName}/app-${version}/resources/_app.asar
+      mkdir $out/opt/${binaryName}/app-${version}/resources/app
+      echo '{"name":"discord","main":"injector.js","private": true}' > $out/opt/${binaryName}/app-${version}/resources/app/package.json
+      echo 'require("${moonlight}/injector.js").inject(require("path").join(__dirname, "../_app.asar"));' > $out/opt/${binaryName}/app-${version}/resources/app/injector.js
     '';
 
   desktopItem = makeDesktopItem {
