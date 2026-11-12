@@ -80,6 +80,37 @@ let
 
   moduleVersions = lib.mapAttrs (_: mod: mod.version) source.modules;
 
+  versionManifest =
+    let
+      manifest = { url, hash }: {
+        full = {
+          inherit url;
+          host_version = hostVersion.version;
+          package_sha256 = builtins.convertHash {
+            inherit hash;
+            toHashFormat = "base16";
+          };
+        };
+        deltas = [ ];
+      };
+
+      moduleManifest =
+        _:
+        {
+          url,
+          hash,
+          version,
+        }:
+        lib.recursiveUpdate (manifest { inherit url hash; }) { full.module_version = version; };
+    in
+    builtins.toJSON (
+      manifest source.distro
+      // {
+        modules = builtins.mapAttrs moduleManifest source.modules;
+        required_modules = builtins.attrNames source.modules;
+      }
+    );
+
   configDir =
     if isLinux then
       "\${DISCORD_USER_DATA_DIR-\${XDG_CONFIG_HOME:-$HOME/.config}}/${lib.toLower binaryName}"
@@ -123,46 +154,18 @@ let
             key TEXT NOT NULL PRIMARY KEY,
             value TEXT NOT NULL
         );
-        REPLACE INTO key_values VALUES('host/app/${branch}/${platform}/${arch}', CAST(readfile('$manifests') AS TEXT));
+        REPLACE INTO key_values
+        VALUES
+            ('host/app/${branch}/${platform}/${arch}', CAST(readfile('$manifests') AS TEXT)),
+            ('latest/host/app/${branch}/${platform}/${arch}', '${versionManifest}');
       "
     '';
 
   disableBreakingUpdates =
     let
-      manifest = { url, hash }: {
-        full = {
-          inherit url;
-          host_version = hostVersion.version;
-          package_sha256 = builtins.convertHash {
-            inherit hash;
-            toHashFormat = "base16";
-          };
-        };
-        deltas = [ ];
-      };
-
-      moduleManifest =
-        _:
-        {
-          url,
-          hash,
-          version,
-        }:
-        lib.recursiveUpdate (manifest { inherit url hash; }) { full.module_version = version; };
-
       serveDir = runCommand "discord-pinned-update" { } ''
         mkdir -p "$out/distributions/app/manifests"
-        echo ${
-          lib.escapeShellArg (
-            builtins.toJSON (
-              manifest source.distro
-              // {
-                modules = builtins.mapAttrs moduleManifest source.modules;
-                required_modules = builtins.attrNames source.modules;
-              }
-            )
-          )
-        } > "$out/distributions/app/manifests/latest"
+        echo ${lib.escapeShellArg versionManifest} > "$out/distributions/app/manifests/latest"
       '';
     in
     runCommand "disable-breaking-updates.py"
