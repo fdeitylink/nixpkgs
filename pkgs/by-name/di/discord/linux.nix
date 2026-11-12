@@ -17,8 +17,8 @@
   withEquicord ? false,
   withMoonlight ? false,
   # Disabling this would normally break Discord.
-  # The intended use-case is when SKIP_HOST_UPDATE and SKIP_MODULE_UPDATE are
-  # enabled via other means, such as a declaratively linked settings.json
+  # The intended use-case is when NEW_UPDATE_ENDPOINT is set via other means,
+  # such as a declaratively linked settings.json
   disableUpdates ? true,
   # Feature flags (Linux exclusive)
   withTTS ? true,
@@ -278,7 +278,7 @@ stdenv.mkDerivation (finalAttrs: {
         --prefix LD_LIBRARY_PATH : $out/opt/${binaryName}/app-${version}:${addDriverRunpath.driverLink}/lib \
         ${lib.strings.optionalString (!useFHSEnv) "--prefix LD_LIBRARY_PATH : ${finalAttrs.libPath}"} \
         --suffix VK_ADD_DRIVER_FILES : "${addDriverRunpath.driverLink}/share/vulkan/icd.d" \
-        ${lib.strings.optionalString disableUpdates "--run ${lib.getExe finalAttrs.disableBreakingUpdates}"} \
+        ${lib.strings.optionalString disableUpdates "--run \"${lib.getExe finalAttrs.disableBreakingUpdates} &\""} \
         --run "${finalAttrs.stageApp} $out/opt/${binaryName}/app-${version} $out/opt/${binaryName}/delta_manifests.json" \
         --run '[ -t 1 ] || exec > /dev/null 2>&1' \
         --add-flags ${lib.escapeShellArg commandLineArgs}
