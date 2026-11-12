@@ -31,6 +31,7 @@
   callPackage,
   fetchurl,
   python3,
+  sqlite,
   # Discord mods
   openasar,
   vencord,
@@ -46,6 +47,7 @@ let
     meta
     binaryName
     desktopName
+    hostVersion
     self
     branch
     ;
@@ -59,6 +61,7 @@ let
     "runCommand"
     "callPackage"
     "python3"
+    "sqlite"
   ];
 
   discordMods = [
@@ -70,13 +73,12 @@ let
 
   inherit (source) version;
 
-  moduleSrcs = lib.mapAttrs (_: mod: fetchurl { inherit (mod) url hash; }) source.modules;
+  moduleSrcs = lib.mapAttrs (_: mod: {
+    inherit (mod) version;
+    src = fetchurl { inherit (mod) url hash; };
+  }) source.modules;
 
   moduleVersions = lib.mapAttrs (_: mod: mod.version) source.modules;
-
-  moduleManifest = builtins.toJSON (
-    lib.mapAttrs (_: mod: { installedVersion = mod; }) moduleVersions
-  );
 
   configDir =
     if isLinux then
@@ -87,16 +89,43 @@ let
       in
       "\${DISCORD_USER_DATA_DIR-$HOME/Library/Application Support}/${configDirName}";
 
-  # Link the whole directory so Discord's native module boundary check sees
-  # the same real path for the module root and the modules it contains
+  # On Linux, copy the whole directory so Discord's native updater initializes
+  # with a rootPath inside the user's config directory, instead of the Nix store
+  # On Darwin, the rootPath resolves inside the config directory, so copying
+  # isn't necessary, but link the whole directory so Discord's native module
+  # boundary check sees the same real path for the module root and the modules
+  # it contains
   # See https://github.com/NixOS/nixpkgs/issues/580512
-  stageModules = writeShellScript "discord-stage-modules" ''
-    store_modules="$1"
-    modules_dir="${configDir}/${version}/modules"
-    rm -rf "$modules_dir"
-    mkdir -p "$(dirname "$modules_dir")"
-    ln -s "$store_modules" "$modules_dir"
-  '';
+  stageApp =
+    let
+      inherit (hostVersion.host) platform arch;
+    in
+    writeShellScript "discord-stage-modules" ''
+      store_app="$1"
+      manifests="$2"
+
+      app_dir="${configDir}/app-${version}"
+
+      stamp=$app_dir.nix-store-path
+      if [[ -e $stamp ]] && [[ $(cat "$stamp") = "$store_app" ]]; then
+        exit 0
+      fi
+
+      rm -rf "$app_dir" "$stamp"
+      mkdir -p "$(dirname "$app_dir")"
+      ${if isLinux then "cp -R" else "ln -s"} "$store_app" "$app_dir"
+      chmod -RP u+w "$app_dir"
+
+      echo "$store_app" > "$stamp"
+
+      ${lib.getExe sqlite} "${configDir}/installer.db" "
+        CREATE TABLE IF NOT EXISTS key_values (
+            key TEXT NOT NULL PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        REPLACE INTO key_values VALUES('host/app/${branch}/${platform}/${arch}', CAST(readfile('$manifests') AS TEXT));
+      "
+    '';
 
   disableBreakingUpdates =
     runCommand "disable-breaking-updates.py"
@@ -133,16 +162,15 @@ let
             pname
             passthru
             disableBreakingUpdates
-            stageModules
+            stageApp
             moduleSrcs
-            moduleManifest
             ;
         }
       );
 
   passthru = {
-    # make it possible to run disableBreakingUpdates and stageModules standalone
-    inherit disableBreakingUpdates stageModules;
+    # make it possible to run disableBreakingUpdates and stageApp standalone
+    inherit disableBreakingUpdates stageApp;
     # Exposed so reviewers can inspect which distro modules are pinned
     inherit source moduleVersions;
     updateScript = {
@@ -184,7 +212,7 @@ if useFHSEnv then
       meta
       version
       passthru
-      stageModules
+      stageApp
       disableBreakingUpdates
       ;
 
