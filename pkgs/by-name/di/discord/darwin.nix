@@ -17,8 +17,8 @@
   withEquicord ? false,
   withMoonlight ? false,
   # Disabling this would normally break Discord.
-  # The intended use-case is when SKIP_HOST_UPDATE and SKIP_MODULE_UPDATE are
-  # enabled via other means, such as a declaratively linked settings.json
+  # The intended use-case is when NEW_UPDATE_ENDPOINT is set via other means,
+  # such as a declaratively linked settings.json
   disableUpdates ? true,
   # Package arguments
   commandLineArgs ? "",
@@ -137,7 +137,7 @@ stdenv.mkDerivation (finalAttrs: {
     # wrap executable to $out/bin
     mkdir -p $out/bin
     makeWrapper "$out/Applications/${desktopName}.app/Contents/MacOS/${binaryName}" "$out/bin/${binaryName}" \
-      ${lib.strings.optionalString disableUpdates "--run ${lib.getExe finalAttrs.disableBreakingUpdates}"} \
+      ${lib.strings.optionalString disableUpdates "--run \"${lib.getExe finalAttrs.disableBreakingUpdates} &\""} \
       --run "${finalAttrs.stageApp} \"$out/share/${pname}/app-${version}\" \"$out/share/${pname}/delta_manifests.json\"" \
       --add-flags ${lib.escapeShellArg commandLineArgs}
 
